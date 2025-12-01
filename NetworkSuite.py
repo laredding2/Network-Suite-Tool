@@ -421,6 +421,177 @@ class NetworkScannerTab:
             messagebox.showerror("Error", f"Failed to save: {e}")
 
 
+class PortScannerTab:
+    """
+    Logic and UI for the Port Scanner Tab.
+    """
+    def __init__(self, parent):
+        self.parent = parent
+        self.scanning = False
+        
+        self.create_widgets()
+
+    def create_widgets(self):
+        # Header
+        header_frame = ttk.Frame(self.parent, padding="10")
+        header_frame.pack(fill=tk.X)
+        
+        ttk.Label(header_frame, text="Port Scanner", font=("Arial", 16, "bold")).pack()
+        ttk.Label(header_frame, text="Scan specific TCP ports on a target host", font=("Arial", 9)).pack()
+
+        # Input Frame
+        input_frame = ttk.LabelFrame(self.parent, text="Target Configuration", padding="10")
+        input_frame.pack(fill=tk.X, padx=10, pady=5)
+
+        # Host Entry
+        ttk.Label(input_frame, text="Target IP / Hostname:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
+        self.target_entry = ttk.Entry(input_frame, width=30)
+        self.target_entry.grid(row=0, column=1, padx=5, pady=5)
+        self.target_entry.insert(0, "127.0.0.1")
+
+        # Port Range
+        ttk.Label(input_frame, text="Start Port:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
+        self.start_port = tk.IntVar(value=1)
+        ttk.Spinbox(input_frame, from_=1, to=65535, textvariable=self.start_port, width=10).grid(row=1, column=1, sticky=tk.W, padx=5)
+
+        ttk.Label(input_frame, text="End Port:").grid(row=1, column=2, sticky=tk.W, padx=5, pady=5)
+        self.end_port = tk.IntVar(value=1024)
+        ttk.Spinbox(input_frame, from_=1, to=65535, textvariable=self.end_port, width=10).grid(row=1, column=3, sticky=tk.W, padx=5)
+
+        # Buttons
+        btn_frame = ttk.Frame(self.parent, padding="10")
+        btn_frame.pack(fill=tk.X)
+
+        self.scan_btn = ttk.Button(btn_frame, text="Start Scan", command=self.start_scan)
+        self.scan_btn.pack(side=tk.LEFT, padx=5)
+        
+        self.stop_btn = ttk.Button(btn_frame, text="Stop", command=self.stop_scan, state=tk.DISABLED)
+        self.stop_btn.pack(side=tk.LEFT, padx=5)
+
+        self.clear_btn = ttk.Button(btn_frame, text="Clear Logs", command=self.clear_logs)
+        self.clear_btn.pack(side=tk.LEFT, padx=5)
+
+        # Progress
+        prog_frame = ttk.Frame(self.parent, padding="10")
+        prog_frame.pack(fill=tk.X)
+        self.progress_var = tk.DoubleVar()
+        self.progress_bar = ttk.Progressbar(prog_frame, variable=self.progress_var, maximum=100)
+        self.progress_bar.pack(fill=tk.X)
+        self.status_lbl = ttk.Label(prog_frame, text="Ready")
+        self.status_lbl.pack(pady=2)
+
+        # Results
+        res_frame = ttk.LabelFrame(self.parent, text="Scan Output", padding="10")
+        res_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+
+        self.console = scrolledtext.ScrolledText(res_frame, width=80, height=15, font=("Courier", 9))
+        self.console.pack(fill=tk.BOTH, expand=True)
+        
+        # Tags for coloring
+        self.console.tag_config("open", foreground="green")
+        self.console.tag_config("closed", foreground="gray")
+        self.console.tag_config("error", foreground="red")
+        self.console.tag_config("info", foreground="blue")
+
+    def log(self, msg, tag="info"):
+        self.console.insert(tk.END, msg + "\n", tag)
+        self.console.see(tk.END)
+
+    def clear_logs(self):
+        self.console.delete(1.0, tk.END)
+        self.progress_var.set(0)
+        self.status_lbl.config(text="Ready")
+
+    def stop_scan(self):
+        self.scanning = False
+        self.status_lbl.config(text="Stopping...")
+
+    def start_scan(self):
+        target = self.target_entry.get().strip()
+        start = self.start_port.get()
+        end = self.end_port.get()
+
+        if not target:
+            messagebox.showerror("Error", "Please enter a target IP or Hostname.")
+            return
+        if start > end:
+            messagebox.showerror("Error", "Start port cannot be greater than end port.")
+            return
+
+        self.scanning = True
+        self.scan_btn.config(state=tk.DISABLED)
+        self.stop_btn.config(state=tk.NORMAL)
+        self.clear_logs()
+        
+        threading.Thread(target=self.run_scan_thread, args=(target, start, end), daemon=True).start()
+
+    def run_scan_thread(self, target, start, end):
+        try:
+            # Resolve hostname if needed
+            target_ip = socket.gethostbyname(target)
+            self.log(f"Starting scan on {target} ({target_ip})", "info")
+            self.log(f"Range: {start}-{end}", "info")
+            self.log("-" * 40, "info")
+        except socket.gaierror:
+            self.log(f"Could not resolve hostname: {target}", "error")
+            self.scanning = False
+            self.reset_buttons()
+            return
+
+        ports = list(range(start, end + 1))
+        total = len(ports)
+        completed = 0
+        
+        # Using ThreadPoolExecutor for faster scanning
+        with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
+            future_to_port = {executor.submit(self.check_port, target_ip, port): port for port in ports}
+            
+            for future in concurrent.futures.as_completed(future_to_port):
+                if not self.scanning:
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    break
+
+                port, is_open = future.result()
+                completed += 1
+                
+                if is_open:
+                    try:
+                        service = socket.getservbyport(port)
+                    except:
+                        service = "unknown"
+                    self.log(f"[+] Port {port:<5} OPEN ({service})", "open")
+                
+                # Update UI
+                progress = (completed / total) * 100
+                self.progress_var.set(progress)
+                self.status_lbl.config(text=f"Scanning... {completed}/{total}")
+
+        self.log("-" * 40, "info")
+        if self.scanning:
+            self.log("Scan Complete.", "info")
+            self.status_lbl.config(text="Scan Complete")
+        else:
+            self.log("Scan Stopped by user.", "error")
+            self.status_lbl.config(text="Stopped")
+            
+        self.scanning = False
+        self.reset_buttons()
+
+    def check_port(self, ip, port):
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(0.5) # 500ms timeout
+            result = sock.connect_ex((ip, port))
+            sock.close()
+            return port, result == 0
+        except:
+            return port, False
+
+    def reset_buttons(self):
+        self.parent.after(0, lambda: self.scan_btn.config(state=tk.NORMAL))
+        self.parent.after(0, lambda: self.stop_btn.config(state=tk.DISABLED))
+
+
 class IPGameTab:
     """
     Logic and UI for the Public vs Private IP Game.
@@ -670,7 +841,7 @@ class PasswordGeneratorTab:
 class NetworkToolSuite:
     def __init__(self, root):
         self.root = root
-        self.root.title("Network Tool Suite V1.2")
+        self.root.title("Network Tool Suite V1.3")
         self.root.geometry("900x750")
         self.root.resizable(True, True)
         
@@ -692,12 +863,17 @@ class NetworkToolSuite:
         self.notebook.add(self.scanner_frame, text="  Network Ping Scanner  ")
         self.scanner_app = NetworkScannerTab(self.scanner_frame)
         
-        # Tab 3: IP Game
+        # Tab 3: Port Scanner (NEW)
+        self.port_frame = ttk.Frame(self.notebook)
+        self.notebook.add(self.port_frame, text="  Port Scanner  ")
+        self.port_app = PortScannerTab(self.port_frame)
+        
+        # Tab 4: IP Game
         self.game_frame = ttk.Frame(self.notebook)
         self.notebook.add(self.game_frame, text="  IP Game  ")
         self.game_app = IPGameTab(self.game_frame)
         
-        # Tab 4: Password Generator
+        # Tab 5: Password Generator
         self.pwd_frame = ttk.Frame(self.notebook)
         self.notebook.add(self.pwd_frame, text="  Password Generator  ")
         self.pwd_app = PasswordGeneratorTab(self.pwd_frame)
