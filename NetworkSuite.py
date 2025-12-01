@@ -737,7 +737,7 @@ class IPGameTab:
             self.score_label.config(text=f"Current Streak: {self.score}")
             self.feedback_label.config(text="Correct!", foreground="green")
             # Speed up slightly every 5 points, maxing at 1.0s
-            if self.score % 5 == 0 and self.timer_seconds > 1.0:
+            if self.score % 5 == 0 and self.timer_seconds > 0.5:
                 self.timer_seconds -= 0.2
             self.parent.after(500, self.next_round)
         else:
@@ -841,7 +841,7 @@ class PasswordGeneratorTab:
 class NetworkToolSuite:
     def __init__(self, root):
         self.root = root
-        self.root.title("Network Tool Suite V1.3")
+        self.root.title("Network Tool Suite V1.3.1")
         self.root.geometry("900x750")
         self.root.resizable(True, True)
         
@@ -885,3 +885,4 @@ if __name__ == "__main__":
     root = tk.Tk()
     app = NetworkToolSuite(root)
     root.mainloop()
+
