@@ -7,6 +7,8 @@ import concurrent.futures
 import socket
 import threading
 import random
+import string
+import secrets
 from datetime import datetime
 from typing import Tuple
 
@@ -500,7 +502,6 @@ class IPGameTab:
 
     def generate_ip(self):
         # 50% chance for Private, 50% for Public to make game balanced
-        # (Otherwise random IPs are 99% public)
         if random.random() < 0.5:
             # Generate Private IP
             choice = random.choice(['10', '172', '192'])
@@ -584,10 +585,92 @@ class IPGameTab:
         self.timer_seconds = 3.0 # Reset difficulty
 
 
+class PasswordGeneratorTab:
+    """
+    Logic and UI for the Password Generator Tab.
+    """
+    def __init__(self, parent):
+        self.parent = parent
+        self.length_var = tk.IntVar(value=16)
+        self.use_upper = tk.BooleanVar(value=True)
+        self.use_lower = tk.BooleanVar(value=True)
+        self.use_digits = tk.BooleanVar(value=True)
+        self.use_symbols = tk.BooleanVar(value=True)
+        self.generated_password = tk.StringVar()
+        
+        self.setup_ui()
+
+    def setup_ui(self):
+        container = ttk.Frame(self.parent, padding="20")
+        container.pack(fill=tk.BOTH, expand=True)
+        
+        # Title
+        ttk.Label(container, text="Secure Password Generator", 
+                 font=('Arial', 16, 'bold')).pack(pady=(0, 20))
+
+        # Options Frame
+        opts_frame = ttk.LabelFrame(container, text="Options", padding="15")
+        opts_frame.pack(fill=tk.X, pady=10)
+
+        # Length
+        len_frame = ttk.Frame(opts_frame)
+        len_frame.pack(fill=tk.X, pady=5)
+        ttk.Label(len_frame, text="Password Length:").pack(side=tk.LEFT)
+        ttk.Spinbox(len_frame, from_=4, to=128, textvariable=self.length_var, width=5).pack(side=tk.LEFT, padx=10)
+        
+        # Checkboxes
+        check_frame = ttk.Frame(opts_frame)
+        check_frame.pack(fill=tk.X, pady=5)
+        ttk.Checkbutton(check_frame, text="A-Z (Uppercase)", variable=self.use_upper).pack(anchor=tk.W)
+        ttk.Checkbutton(check_frame, text="a-z (Lowercase)", variable=self.use_lower).pack(anchor=tk.W)
+        ttk.Checkbutton(check_frame, text="0-9 (Digits)", variable=self.use_digits).pack(anchor=tk.W)
+        ttk.Checkbutton(check_frame, text="!@# (Symbols)", variable=self.use_symbols).pack(anchor=tk.W)
+
+        # Action Buttons
+        btn_frame = ttk.Frame(container)
+        btn_frame.pack(pady=20)
+        ttk.Button(btn_frame, text="Generate Password", command=self.generate).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="Copy to Clipboard", command=self.copy_clipboard).pack(side=tk.LEFT, padx=5)
+
+        # Result Display
+        res_frame = ttk.LabelFrame(container, text="Generated Password", padding="15")
+        res_frame.pack(fill=tk.X, pady=10)
+        
+        self.entry_res = ttk.Entry(res_frame, textvariable=self.generated_password, font=('Courier', 12), state='readonly')
+        self.entry_res.pack(fill=tk.X)
+
+    def generate(self):
+        chars = ""
+        if self.use_upper.get(): chars += string.ascii_uppercase
+        if self.use_lower.get(): chars += string.ascii_lowercase
+        if self.use_digits.get(): chars += string.digits
+        if self.use_symbols.get(): chars += string.punctuation
+
+        if not chars:
+            messagebox.showerror("Error", "Please select at least one character type.")
+            return
+
+        try:
+            length = self.length_var.get()
+            if length < 1: length = 1
+            # Using secrets for cryptographic security
+            pwd = ''.join(secrets.choice(chars) for _ in range(length))
+            self.generated_password.set(pwd)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to generate: {e}")
+
+    def copy_clipboard(self):
+        pwd = self.generated_password.get()
+        if pwd:
+            self.parent.clipboard_clear()
+            self.parent.clipboard_append(pwd)
+            messagebox.showinfo("Success", "Password copied to clipboard!")
+
+
 class NetworkToolSuite:
     def __init__(self, root):
         self.root = root
-        self.root.title("Network Tool Suite V1.1")
+        self.root.title("Network Tool Suite V1.2")
         self.root.geometry("900x750")
         self.root.resizable(True, True)
         
@@ -613,6 +696,11 @@ class NetworkToolSuite:
         self.game_frame = ttk.Frame(self.notebook)
         self.notebook.add(self.game_frame, text="  IP Game  ")
         self.game_app = IPGameTab(self.game_frame)
+        
+        # Tab 4: Password Generator
+        self.pwd_frame = ttk.Frame(self.notebook)
+        self.notebook.add(self.pwd_frame, text="  Password Generator  ")
+        self.pwd_app = PasswordGeneratorTab(self.pwd_frame)
         
         self.status_bar = ttk.Label(self.root, text="Network Tool Suite Ready", relief=tk.SUNKEN, anchor=tk.W)
         self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
